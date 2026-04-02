@@ -1,30 +1,23 @@
-use std::{collections::VecDeque, num::NonZeroUsize};
-
 // TODO: DOCS
 
-#[derive(Debug)]
-pub struct RollingMax<T> {
-    // Invariant: These are 1:1. They are conceptually a `(usize, T)` tuple,
-    // but split into two deques to avoid alignment padding when T is narrower
-    // than usize (e.g. u8/u16 on 64-bit targets).
-    deq: VecDeque<T>,
-    expires: VecDeque<usize>,
+use arraydeque::ArrayDeque;
 
+#[derive(Debug, Default)]
+pub struct RollingMax<T, const WINDOW: usize> {
+    deq: ArrayDeque<T, WINDOW>,
+    expires: ArrayDeque<usize, WINDOW>,
     ct: usize,
-    cap: usize,
 }
 
-impl<T> RollingMax<T>
+impl<T, const W: usize> RollingMax<T, W>
 where
     T: PartialOrd,
 {
     #[must_use]
-    pub fn new(capacity: NonZeroUsize) -> Self {
-        let cap: usize = capacity.into();
+    pub const fn new() -> Self {
         Self {
-            deq: VecDeque::with_capacity(cap),
-            expires: VecDeque::with_capacity(cap),
-            cap,
+            deq: ArrayDeque::new(),
+            expires: ArrayDeque::new(),
             ct: 0,
         }
     }
@@ -35,7 +28,7 @@ where
         while self
             .expires
             .front()
-            .is_some_and(|&exp| self.ct.wrapping_sub(exp) <= self.cap)
+            .is_some_and(|&exp| self.ct.wrapping_sub(exp) <= W)
         {
             self.deq.pop_front();
             self.expires.pop_front();
@@ -47,7 +40,7 @@ where
         }
 
         self.deq.push_back(entry);
-        self.expires.push_back(self.ct.wrapping_add(self.cap));
+        self.expires.push_back(self.ct.wrapping_add(W));
     }
 
     #[must_use]
@@ -58,35 +51,22 @@ where
 
 #[cfg(test)]
 mod tests {
+    use core::fmt::Debug;
+
     use super::*;
-
-    fn nz(n: usize) -> NonZeroUsize {
-        NonZeroUsize::new(n).unwrap()
-    }
-
-    /// Push every value and collect the rolling max after each push.
-    fn maxes<T: PartialOrd + Copy>(vals: &[T], cap: usize) -> Vec<T> {
-        let mut rm = RollingMax::new(nz(cap));
-        vals.iter()
-            .map(|&v| {
-                rm.push(v);
-                *rm.max().unwrap()
-            })
-            .collect()
-    }
 
     /// Verifies the zero-state guarantee: max must be None before any push.
     #[test]
     fn max_on_empty_is_none() {
-        let rm: RollingMax<i32> = RollingMax::new(nz(3));
+        let rm: RollingMax<i32, 3> = RollingMax::new();
         assert_eq!(rm.max(), None);
     }
 
     /// A single push must always yield Some, regardless of window size.
     #[test]
     fn single_push_yields_some() {
-        let mut rm = RollingMax::new(nz(5));
-        rm.push(42i32);
+        let mut rm: RollingMax<i32, 5> = RollingMax::new();
+        rm.push(42);
         assert_eq!(rm.max(), Some(&42));
     }
 
@@ -94,63 +74,64 @@ mod tests {
     /// the entire deque is evicted on every push.
     #[test]
     fn window_of_one() {
-        assert_eq!(maxes(&[3, 1, 4, 1, 5], 1), vec![3, 1, 4, 1, 5]);
+        expect_max::<i32, 1>([3, 1, 4, 1, 5].into_iter().zip([3, 1, 4, 1, 5]));
     }
 
     /// Window larger than the entire input: tracker never evicts, so the
     /// running max is monotonically non-decreasing.
     #[test]
     fn window_larger_than_input() {
-        assert_eq!(maxes(&[2, 4, 1], 10), vec![2, 4, 4]);
+        expect_max::<i32, 10>([2, 4, 1].into_iter().zip([2, 4, 4]));
     }
 
     /// Window exactly equal to input length: global max emerges only after
     /// the last push.
     #[test]
     fn window_equals_input_length() {
-        assert_eq!(maxes(&[1, 3, 2, 5, 4], 5), vec![1, 3, 3, 5, 5]);
+        expect_max::<i32, 5>([1, 3, 2, 5, 4].into_iter().zip([1, 3, 3, 5, 5]));
     }
 
     /// Core sliding-window case; this exact sequence caught the off-by-one
     /// expiry bug where element `3` incorrectly survived into window [1,2,0].
     #[test]
     fn sliding_window_canonical() {
-        assert_eq!(maxes(&[1, 3, 1, 2, 0, 5], 3), vec![1, 3, 3, 3, 2, 5]);
+        expect_max::<i32, 3>([1, 3, 1, 2, 0, 5].into_iter().zip([1, 3, 3, 3, 2, 5]));
     }
 
     /// Strictly increasing input: the monotone invariant discards every
     /// predecessor, so the deque always holds exactly one element.
     #[test]
     fn strictly_increasing() {
-        assert_eq!(maxes(&[1, 2, 3, 4, 5], 3), vec![1, 2, 3, 4, 5]);
+        expect_max::<i32, 3>([1, 2, 3, 4, 5].into_iter().zip([1, 2, 3, 4, 5]));
     }
 
     /// Strictly decreasing input: the oldest value leads the deque and must
     /// survive until it expires, then yield to the next oldest.
     #[test]
     fn strictly_decreasing() {
-        assert_eq!(maxes(&[5, 4, 3, 2, 1], 3), vec![5, 5, 5, 4, 3]);
+        expect_max::<i32, 3>([5, 4, 3, 2, 1].into_iter().zip([5, 5, 5, 4, 3]));
     }
 
     /// All-equal input: equal elements are pruned from the back (`<=`), so
     /// the deque stays bounded and does not grow without limit.
     #[test]
     fn all_equal() {
-        assert_eq!(maxes(&[7i32; 6], 3), vec![7; 6]);
+        expect_max::<i32, 3>([7i32; 6].into_iter().zip([7; 6]));
     }
 
     /// Negative values: ensures no implicit assumption about sign or zero.
     #[test]
     fn negative_values() {
-        assert_eq!(maxes(&[-3, -1, -4, -1, -5], 2), vec![-3, -1, -1, -1, -1]);
+        expect_max::<i32, 2>([-3, -1, -4, -1, -5].into_iter().zip([-3, -1, -1, -1, -1]));
     }
 
     /// Float input: exercises the PartialOrd bound on a non-Ord type.
     #[test]
     fn float_values() {
-        assert_eq!(
-            maxes(&[1.0f64, 3.0, 2.0, 5.0, 4.0], 2),
-            vec![1.0, 3.0, 3.0, 5.0, 5.0]
+        expect_max::<f32, 2>(
+            [1.0, 3.0, 2.0, 5.0, 4.0]
+                .into_iter()
+                .zip([1.0, 3.0, 3.0, 5.0, 5.0]),
         );
     }
 
@@ -158,8 +139,8 @@ mod tests {
     /// guards against off-by-one errors at the expiry boundary.
     #[test]
     fn max_expires_at_exact_boundary() {
-        let mut rm = RollingMax::new(nz(3));
-        rm.push(99i32);
+        let mut rm = RollingMax::<i32, 3>::new();
+        rm.push(99);
         rm.push(1);
         rm.push(1);
         assert_eq!(rm.max(), Some(&99)); // 99 still in [99, 1, 1]
@@ -172,11 +153,9 @@ mod tests {
     /// wrapping arithmetic correctly evicts and retains elements.
     #[test]
     fn expiry_counter_wrapping() {
-        let cap = 3;
-        let mut rm = RollingMax {
-            deq: VecDeque::with_capacity(cap),
-            expires: VecDeque::with_capacity(cap),
-            cap: 3,
+        let mut rm: RollingMax<i32, 3> = RollingMax {
+            deq: ArrayDeque::new(),
+            expires: ArrayDeque::new(),
             ct: usize::MAX - 3,
         };
 
@@ -193,5 +172,19 @@ mod tests {
 
         rm.push(9); // ct = 2. exp=2 matches ct → evicts 8. Monotone pops 7. window=[6,7,9]
         assert_eq!(rm.max(), Some(&9));
+    }
+
+    /// Feeds inputs from an `(input, expected)` iterator into
+    /// a RollingMax. Compares each max to `expected` and panics
+    /// if they're not equal.
+    fn expect_max<T, const WINDOW: usize>(input_and_expected: impl Iterator<Item = (T, T)>)
+    where
+        T: PartialOrd + Copy + Debug + PartialEq,
+    {
+        let mut rm: RollingMax<T, WINDOW> = RollingMax::new();
+        for (input, expected) in input_and_expected {
+            rm.push(input);
+            assert_eq!(*rm.max().unwrap(), expected);
+        }
     }
 }

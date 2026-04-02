@@ -3,9 +3,53 @@ name = "high-roller"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Rolling maximum and rolling sum for streams of numerical data."
+description = "Rolling maximum, minimum, and sum for streams of numerical data."
 repository = "https://github.com/cfzimmerman/high-roller"
 readme = "README.md"
 
 [dependencies]
+arraydeque = { version = "0.5.1", default_features = false }
 num-traits = "0.2.19"
+ringbuffer = "0.16.0"
+thiserror = { version = "2.0.18", default_features = false }
+
+[dev-dependencies]
+decimal = "2.1.0"
+rand = "0.10.0"
+criterion = "0.7.0"
+
+[lints.clippy]
+cast_lossless = "warn"
+checked_conversions = "warn"
+integer_division = "warn"
+arithmetic_side_effects = "warn"
+as_ptr_cast_mut = "warn"
+ptr_as_ptr = "warn"
+
+wildcard_in_or_patterns = "warn"
+
+unwrap_used = "warn"
+expect_used = "warn"
+indexing_slicing = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+must_use_candidate = "warn"
+return_self_not_must_use = "warn"
+use_self = "warn"
+derive_partial_eq_without_eq = "warn"
+cloned_instead_of_copied = "warn"
+inefficient_to_string = "warn"
+implicit_clone = "warn"
+
+
+manual_let_else = "warn"
+match_wildcard_for_single_variants = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+unnested_or_patterns = "warn"
+exhaustive_structs = "warn"
+exhaustive_enums = "warn"
