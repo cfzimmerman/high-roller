@@ -9,7 +9,8 @@ use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
 pub struct RollingSum<T, const WINDOW: usize> {
     deq: ArrayDeque<T, WINDOW>,
     total: T,
-    wrap_ct: usize,
+    zero: T,
+    balance: isize,
 }
 
 impl<T, const W: usize> Default for RollingSum<T, W>
@@ -17,7 +18,7 @@ where
     T: Default,
 {
     fn default() -> Self {
-        Self::new(T::default())
+        Self::new(T::default(), T::default())
     }
 }
 
@@ -26,12 +27,13 @@ where
     T: Default,
 {
     #[must_use]
-    pub const fn new(init: T) -> Self {
+    pub const fn new(init: T, zero: T) -> Self {
         const { assert!(WINDOW != 0, "RollingSum with WINDOW == 0 is not permitted") };
         Self {
             deq: ArrayDeque::new(),
             total: init,
-            wrap_ct: 0,
+            balance: 0,
+            zero,
         }
     }
 }
@@ -58,33 +60,39 @@ where
     // and should not be exposed to the user.
     #[allow(clippy::expect_used)]
     #[allow(clippy::missing_panics_doc)]
-    pub fn add(&mut self, val: T) -> bool {
+    pub fn add(&mut self, val: T) {
+        // TODO(corzimmerman): fix this
         if self.deq.is_full() {
             // Construction has a const assertion that WINDOW is not zero.
             // So `is_full` guarantees there's something to pop.
             let popped = self.deq.pop_front().expect(
                 "len is equal to capacity, and capacity is nonzero. So an element must exist.",
             );
-            let underflowed = self.total.checked_sub(&popped).is_none();
+
+            let changed = self.total.checked_sub(&popped).is_none();
             self.total = self.total.wrapping_sub(&popped);
-            self.wrap_ct = self
-                .wrap_ct
-                .checked_sub(underflowed.into())
-                .expect("overflow and underflow should be 1:1");
+
+            if changed {
+                self.balance = self
+                    .balance
+                    .checked_add(if val >= self.zero { -1 } else { 1 })
+                    .expect("overflow count itself overflowed");
+            }
         }
 
-        let overflowed = self.total.checked_add(&val).is_none();
+        let changed = self.total.checked_add(&val).is_none();
         self.total = self.total.wrapping_add(&val);
-        self.wrap_ct = self
-            .wrap_ct
-            .checked_add(overflowed.into())
-            .expect("overflow count itself overflowed");
+
+        if changed {
+            self.balance = self
+                .balance
+                .checked_add(if val >= self.zero { 1 } else { -1 })
+                .expect("overflow count itself overflowed");
+        }
 
         // The `if` condition above guarantees the deque
         // is not full. So there's space to push a value.
         self.deq.push_back(val).expect("deq is not full");
-
-        true
     }
 
     /// Returns the accumulated total of all added
@@ -96,7 +104,60 @@ where
     /// the last element causing overflow is pushed out.
     #[must_use]
     pub fn total(&self) -> Option<&T> {
-        (self.wrap_ct == 0).then_some(&self.total)
+        (self.balance == 0).then_some(&self.total)
+    }
+}
+
+#[cfg(test)]
+pub mod for_tests {
+    use arraydeque::{ArrayDeque, Wrapping};
+
+    use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
+
+    /// A simple implementation satisfying the same API as
+    /// this crate's `RollingSum` type. This is used for both
+    /// correctness and performance testing.
+    #[derive(Debug, Default)]
+    pub struct NaiveRollingSum<T, const WINDOW: usize> {
+        deq: ArrayDeque<T, WINDOW, Wrapping>,
+        init: T,
+    }
+
+    impl<T, const WINDOW: usize> NaiveRollingSum<T, WINDOW>
+    where
+        T: Default,
+    {
+        #[must_use]
+        pub const fn new(init: T) -> Self {
+            const { assert!(WINDOW != 0, "RollingSum with WINDOW == 0 is not permitted") };
+            Self {
+                deq: ArrayDeque::new(),
+                init,
+            }
+        }
+    }
+
+    impl<T, const WINDOW: usize> NaiveRollingSum<T, WINDOW>
+    where
+        T: WrappingAdd + WrappingSub + CheckedAdd + CheckedSub + PartialOrd + Copy + Default,
+    {
+        pub fn add(&mut self, val: T) {
+            self.deq.push_back(val);
+        }
+
+        // The error recovery semantics exposed by RollingSum require
+        // recomputing the sum whenever a total is needed. An
+        // intermediate solution could use an accumulator until the
+        // first overflow, but then every overflowing addition after
+        // that would require a full iteration. That's
+        // too dependent on user inputs to be meaningful for performance
+        // analysis in a general API.
+        #[must_use]
+        pub fn total(&self) -> Option<T> {
+            self.deq
+                .iter()
+                .try_fold(self.init, |acc, el| acc.checked_add(el))
+        }
     }
 }
 
@@ -104,8 +165,37 @@ where
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::decimal::D1;
+    use crate::{
+        decimal::{D1, D4},
+        rolling_sum::for_tests::NaiveRollingSum,
+    };
     use core::fmt::Debug;
+    use rand::{distr::Uniform, rngs::SmallRng, RngExt, SeedableRng};
+
+    /// Smoke test for RollingSum correctness.
+    ///
+    /// Accumulates a representative RollingMax and NaiveRollingMax
+    /// to verify their outputs are identical.
+    #[test]
+    fn rng_with_naive() {
+        const QLEN: usize = 600;
+        const STREAM_LEN: usize = 10_000;
+
+        let sample = SmallRng::seed_from_u64(57).sample_iter(Uniform::new(-100f32, 800.).unwrap());
+        let mut roller = RollingSum::<D4, QLEN>::default();
+        let mut naive = NaiveRollingSum::<D4, QLEN>::default();
+
+        let mut nones = 0;
+        for val in sample.take(STREAM_LEN) {
+            let d4 = D4::cast(val);
+            roller.add(d4);
+            naive.add(d4);
+            assert_eq!(roller.total(), naive.total().as_ref());
+            nones += usize::from(roller.total().is_none());
+        }
+
+        println!("percent none: {:?}", nones as f32 / STREAM_LEN as f32);
+    }
 
     /// Verifies that total() returns `init` before any values are added.
     #[test]
@@ -219,6 +309,43 @@ mod tests {
         assert_eq!(rs.total(), Some(&(HALF * 2))); // 2^63 - 1, no overflow
         rs.add(1);
         assert_eq!(rs.total(), Some(&(HALF + 1))); // evicted half → half + 1
+    }
+
+    #[test]
+    fn overflow_negative() {
+        let mut rs = RollingSum::<i32, 3>::default();
+
+        rs.add(i32::MAX); // Total = MAX
+        assert!(rs.total().is_some());
+
+        rs.add(i32::MIN); // Total = MAX + MIN
+        assert!(rs.total().is_some());
+
+        rs.add(i32::MAX); // Total = MAX + MIN + MAX
+        assert!(rs.total().is_some());
+
+        rs.add(i32::MAX); // Total = MIN + MAX + MAX
+        assert!(rs.total().is_some());
+
+        rs.add(0); // Total = MAX + MAX + 0
+        assert!(rs.total().is_none());
+
+        rs.add(0); // Total = MAX + 0 + 0
+        assert_eq!(rs.total(), Some(&i32::MAX));
+    }
+
+    #[test]
+    fn underflow_negative() {
+        let mut rs = RollingSum::<i32, 3>::default();
+
+        rs.add(i32::MIN);
+        assert!(rs.total().is_some());
+
+        rs.add(-1);
+        assert!(rs.total().is_none());
+
+        rs.add(1);
+        assert_eq!(rs.total(), Some(&i32::MIN));
     }
 
     #[test]

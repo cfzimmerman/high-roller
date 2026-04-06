@@ -68,10 +68,68 @@ where
 }
 
 #[cfg(test)]
+pub mod for_tests {
+    use arraydeque::{ArrayDeque, Wrapping};
+
+    /// The simple and easy implementation of RollingMax.
+    /// Useful for verifying correctness and performance
+    /// characteristics. This crate's `RollingMax` is totally
+    /// useless if this meets your needs.
+    #[derive(Default)]
+    pub struct NaiveRollingMax<T, const W: usize> {
+        deq: ArrayDeque<T, W, Wrapping>,
+    }
+
+    impl<T, const W: usize> NaiveRollingMax<T, W>
+    where
+        T: Ord,
+    {
+        #[must_use]
+        pub const fn new() -> Self {
+            Self {
+                deq: ArrayDeque::new(),
+            }
+        }
+
+        pub fn push(&mut self, entry: T) {
+            self.deq.push_back(entry);
+        }
+
+        pub fn max(&self) -> Option<&T> {
+            self.deq.iter().max()
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use core::fmt::Debug;
+    use crate::{decimal::D4, rolling_max::for_tests::NaiveRollingMax};
 
     use super::*;
+    use core::fmt::Debug;
+    use rand::{distr::Uniform, rngs::SmallRng, RngExt, SeedableRng};
+
+    /// Smoke test for RollingMax correctness.
+    ///
+    /// Accumulates a representative RollingMax and NaiveRollingMax
+    /// to verify their outputs are identical.
+    #[test]
+    fn rng_with_naive() {
+        const QLEN: usize = 6000;
+        const STREAM_LEN: usize = 10_000;
+
+        let sample = SmallRng::seed_from_u64(75).sample_iter(Uniform::new(0f32, 65.535).unwrap());
+        let mut roller = RollingMax::<D4, QLEN>::new();
+        let mut naive = NaiveRollingMax::<D4, QLEN>::new();
+
+        for val in sample.take(STREAM_LEN) {
+            let d4 = D4::cast(val);
+            roller.push(d4);
+            naive.push(d4);
+            assert_eq!(roller.max(), naive.max());
+        }
+    }
 
     /// Verifies the zero-state guarantee: max must be None before any push.
     #[test]

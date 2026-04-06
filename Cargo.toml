@@ -8,10 +8,10 @@ repository = "https://github.com/cfzimmerman/high-roller"
 readme = "README.md"
 
 [dependencies]
-arraydeque = { version = "0.5.1", default_features = false }
+arraydeque = { version = "0.5.1", default-features = false }
 num-traits = "0.2.19"
 ringbuffer = "0.16.0"
-thiserror = { version = "2.0.18", default_features = false }
+thiserror = { version = "2.0.18", default-features = false }
 
 [dev-dependencies]
 decimal = "2.1.0"
@@ -53,3 +53,7 @@ semicolon_if_nothing_returned = "warn"
 unnested_or_patterns = "warn"
 exhaustive_structs = "warn"
 exhaustive_enums = "warn"
+
+[[bench]]
+name = "rolling_max"
+harness = false

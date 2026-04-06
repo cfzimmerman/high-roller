@@ -1,4 +1,5 @@
 use core::f32;
+use core::fmt::Debug;
 use core::ops::{Add, Sub};
 
 use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
@@ -26,9 +27,15 @@ pub enum DecimalErr {
     Lossy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Decimal32<const PRECISION: u32>(i32);
+
+impl<const P: u32> Debug for Decimal32<P> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self.get())
+    }
+}
 
 const fn scalar(precision: u32) -> u32 {
     10u32.pow(precision)
@@ -157,9 +164,9 @@ pub mod decimal_tests {
         assert_eq_f32(D3::cast(-3.500).get(), -3.500, 3);
     }
 
-    /// cast_from truncates toward zero rather than rounding.
+    /// cast truncates toward zero rather than rounding.
     #[test]
-    fn cast_from_truncates() {
+    fn cast_truncates() {
         // 0.9999 * 1 = 0.9999, cast to i32 truncates to 0
         let d = Decimal32::<0>::cast(0.9999_f32);
         assert_eq!(d.get(), 0.0_f32);

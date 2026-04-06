@@ -1,4 +1,65 @@
-use std::{collections::VecDeque, num::NonZeroUsize};
+use std::{collections::VecDeque, num::NonZeroUsize, ops::Range};
+
+use criterion::{criterion_group, criterion_main, Criterion};
+use high_roller::rolling_max::RollingMax;
+use rand::{
+    distr::{uniform::SampleUniform, Uniform},
+    rngs::SmallRng,
+    RngExt, SeedableRng,
+};
+use std::hint::black_box;
+
+/*
+
+Compare:
+- Std
+- Naive
+- RollingMax
+- RollingSum
+
+*/
+
+const QLEN: usize = 600;
+const STREAM_LEN: usize = 100_000;
+
+fn sampler<T>(range: Range<T>) -> impl Iterator<Item = T>
+where
+    T: SampleUniform,
+{
+    // Unwrap is fine since this is test code, and the range's
+    // acceptability will never change.
+    #[allow(clippy::unwrap_used)]
+    SmallRng::seed_from_u64(119)
+        .sample_iter(Uniform::new(range.start, range.end).unwrap())
+        .take(STREAM_LEN)
+}
+
+fn bench_rolling_max<const WINDOW: usize>(c: &mut Criterion) {
+    c.bench_function("rng_baseline_stream", |b| {
+        b.iter(|| {
+            for num in self::sampler(0f32..100f32) {
+                std::hint::black_box(num);
+            }
+        });
+    });
+
+    c.bench_function(&format!("rolling_max_{WINDOW}"), |b| {
+        b.iter(|| {
+            let mut roller: RollingMax<i32, WINDOW> = RollingMax::new();
+            for num in self::sampler(i32::MIN..i32::MAX) {
+                roller.push(num);
+                std::hint::black_box(roller.max());
+            }
+        });
+    });
+}
+
+fn rolling_max(c: &mut Criterion) {
+    for qlen in [6, 60, 600, 6000, 60_000] {}
+}
+
+criterion_group!(benches, rolling_max);
+criterion_main!(benches);
 
 #[derive(Debug)]
 pub struct RollingMaxV1<T> {
