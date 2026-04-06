@@ -22,6 +22,15 @@ where
         }
     }
 
+    // Clippy allow:
+    //
+    // Expect is used in this function to guarantee invariants.
+    // See the note within the function.
+    //
+    // It should never panic in user code. So exposing or documenting
+    // the failure case makes the API unnecessarily leaky.
+    #[allow(clippy::expect_used)]
+    #[allow(clippy::missing_panics_doc)]
     pub fn push(&mut self, entry: T) {
         self.ct = self.ct.wrapping_add(1);
 
@@ -39,8 +48,17 @@ where
             self.expires.pop_back();
         }
 
-        self.deq.push_back(entry);
-        self.expires.push_back(self.ct.wrapping_add(W));
+        // The first loop pops any entry whose expiration equals
+        // or exceeds W. So every entry in the queue has a nonzero
+        // expiration less than W. The queue has capacity W. So the
+        // queue is guaranteed to have at least one spot available.
+        // The calls to `expect` below check this invariant.
+        self.deq
+            .push_back(entry)
+            .expect("expirations guarantee queue is never full at this point");
+        self.expires
+            .push_back(self.ct.wrapping_add(W))
+            .expect("expirations guarantee queue is never full at this point");
     }
 
     #[must_use]
@@ -177,6 +195,7 @@ mod tests {
     /// Feeds inputs from an `(input, expected)` iterator into
     /// a RollingMax. Compares each max to `expected` and panics
     /// if they're not equal.
+    #[allow(clippy::unwrap_used)]
     fn expect_max<T, const WINDOW: usize>(input_and_expected: impl Iterator<Item = (T, T)>)
     where
         T: PartialOrd + Copy + Debug + PartialEq,

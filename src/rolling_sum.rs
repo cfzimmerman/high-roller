@@ -26,7 +26,7 @@ where
     T: Default,
 {
     #[must_use]
-    pub fn new(init: T) -> Self {
+    pub const fn new(init: T) -> Self {
         const { assert!(WINDOW != 0, "RollingSum with WINDOW == 0 is not permitted") };
         Self {
             deq: ArrayDeque::new(),
@@ -44,25 +44,46 @@ where
     /// member if the window is full to capacity.
     ///
     /// If adding `T` causes numerical overflow, subsequent
-    /// calls to `total` will fail until the sum returns to an
-    /// un-overflowed state.
+    /// calls to `total` will return None until window
+    /// expirations cause underflow commensurate to the overflow.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the `usize` variable tracking the
+    /// number of times the sum has overflowed itself overflows.
+    /// A window should be sized such that this never occurs.
+    //
+    // Clippy allow:
+    // Explained inline. This is easily provable, will never occur,
+    // and should not be exposed to the user.
+    #[allow(clippy::expect_used)]
+    #[allow(clippy::missing_panics_doc)]
     pub fn add(&mut self, val: T) -> bool {
         if self.deq.is_full() {
+            // Construction has a const assertion that WINDOW is not zero.
+            // So `is_full` guarantees there's something to pop.
             let popped = self.deq.pop_front().expect(
                 "len is equal to capacity, and capacity is nonzero. So an element must exist.",
             );
-            let before = self.total;
+            let underflowed = self.total.checked_sub(&popped).is_none();
             self.total = self.total.wrapping_sub(&popped);
-            if before.checked_sub(&popped).is_none() {
-                self.wrap_ct -= 1;
-            }
+            self.wrap_ct = self
+                .wrap_ct
+                .checked_sub(underflowed.into())
+                .expect("overflow and underflow should be 1:1");
         }
 
-        let before_add = self.total;
+        let overflowed = self.total.checked_add(&val).is_none();
         self.total = self.total.wrapping_add(&val);
-        self.wrap_ct += before_add.checked_add(&val).is_none() as usize;
+        self.wrap_ct = self
+            .wrap_ct
+            .checked_add(overflowed.into())
+            .expect("overflow count itself overflowed");
 
-        self.deq.push_back(val);
+        // The `if` condition above guarantees the deque
+        // is not full. So there's space to push a value.
+        self.deq.push_back(val).expect("deq is not full");
+
         true
     }
 
@@ -80,10 +101,11 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use core::fmt::Debug;
-
     use super::*;
+    use crate::decimal::D1;
+    use core::fmt::Debug;
 
     /// Verifies that total() returns `init` before any values are added.
     #[test]
@@ -190,13 +212,33 @@ mod tests {
     /// Large u64 values that stay within range: verifies no spurious overflow.
     #[test]
     fn u64_large_values_no_overflow() {
-        let half = u64::MAX / 2;
+        const HALF: u64 = (u64::MAX as f64 / 2.) as u64 - 1;
         let mut rs = RollingSum::<_, 2>::default();
-        rs.add(half);
-        rs.add(half);
-        assert_eq!(rs.total(), Some(&(half * 2))); // 2^63 - 1, no overflow
+        rs.add(HALF);
+        rs.add(HALF);
+        assert_eq!(rs.total(), Some(&(HALF * 2))); // 2^63 - 1, no overflow
         rs.add(1);
-        assert_eq!(rs.total(), Some(&(half + 1))); // evicted half → half + 1
+        assert_eq!(rs.total(), Some(&(HALF + 1))); // evicted half → half + 1
+    }
+
+    #[test]
+    fn decimal_overflow() {
+        let mut rs = RollingSum::<D1, 4>::default();
+
+        rs.add(D1::MAX);
+        assert!(rs.total().is_some());
+
+        for _ in 0..100 {
+            rs.add(D1::MAX);
+            assert!(rs.total().is_none());
+        }
+
+        for _ in 0..3 {
+            rs.add(D1::ZERO);
+        }
+
+        rs.add(D1::MIN_UNIT);
+        assert!(matches!(rs.total(), Some(&D1::MIN_UNIT)));
     }
 
     /// Feeds inputs from an `(input, expected)` iterator into
