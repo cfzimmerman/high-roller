@@ -61,7 +61,6 @@ where
     #[allow(clippy::expect_used)]
     #[allow(clippy::missing_panics_doc)]
     pub fn add(&mut self, val: T) {
-        // TODO(corzimmerman): fix this
         if self.deq.is_full() {
             // Construction has a const assertion that WINDOW is not zero.
             // So `is_full` guarantees there's something to pop.
@@ -75,7 +74,7 @@ where
             if changed {
                 self.balance = self
                     .balance
-                    .checked_add(if val >= self.zero { -1 } else { 1 })
+                    .checked_add(if popped >= self.zero { -1 } else { 1 })
                     .expect("overflow count itself overflowed");
             }
         }
@@ -117,6 +116,9 @@ pub mod for_tests {
     /// A simple implementation satisfying the same API as
     /// this crate's `RollingSum` type. This is used for both
     /// correctness and performance testing.
+    ///
+    /// See the note in total. This is not as robust against
+    /// underflow as RollingSum.
     #[derive(Debug, Default)]
     pub struct NaiveRollingSum<T, const WINDOW: usize> {
         deq: ArrayDeque<T, WINDOW, Wrapping>,
@@ -139,22 +141,19 @@ pub mod for_tests {
 
     impl<T, const WINDOW: usize> NaiveRollingSum<T, WINDOW>
     where
-        T: WrappingAdd + WrappingSub + CheckedAdd + CheckedSub + PartialOrd + Copy + Default,
+        T: WrappingAdd + WrappingSub + CheckedAdd + CheckedSub + PartialOrd + Copy + Default + Ord,
     {
         pub fn add(&mut self, val: T) {
             self.deq.push_back(val);
         }
 
-        // The error recovery semantics exposed by RollingSum require
-        // recomputing the sum whenever a total is needed. An
-        // intermediate solution could use an accumulator until the
-        // first overflow, but then every overflowing addition after
-        // that would require a full iteration. That's
-        // too dependent on user inputs to be meaningful for performance
-        // analysis in a general API.
         #[must_use]
         pub fn total(&self) -> Option<T> {
-            self.deq
+            // TODO(corzimmerman): come up with a better naive impl.
+            // Then add a test with underflow.
+            let mut sorted: Vec<T> = self.deq.iter().copied().collect();
+            sorted.sort();
+            sorted
                 .iter()
                 .try_fold(self.init, |acc, el| acc.checked_add(el))
         }
