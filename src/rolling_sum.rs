@@ -110,8 +110,7 @@ where
 #[cfg(test)]
 pub mod for_tests {
     use arraydeque::{ArrayDeque, Wrapping};
-
-    use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
+    use num_bigint::BigInt;
 
     /// A simple implementation satisfying the same API as
     /// this crate's `RollingSum` type. This is used for both
@@ -122,40 +121,32 @@ pub mod for_tests {
     #[derive(Debug, Default)]
     pub struct NaiveRollingSum<T, const WINDOW: usize> {
         deq: ArrayDeque<T, WINDOW, Wrapping>,
-        init: T,
+        sum: BigInt,
     }
 
     impl<T, const WINDOW: usize> NaiveRollingSum<T, WINDOW>
     where
-        T: Default,
+        T: Clone + Default + Into<BigInt> + for<'a> TryFrom<&'a BigInt>,
     {
         #[must_use]
-        pub const fn new(init: T) -> Self {
+        pub fn new(init: T) -> Self {
             const { assert!(WINDOW != 0, "RollingSum with WINDOW == 0 is not permitted") };
             Self {
                 deq: ArrayDeque::new(),
-                init,
+                sum: init.into(),
             }
         }
-    }
 
-    impl<T, const WINDOW: usize> NaiveRollingSum<T, WINDOW>
-    where
-        T: WrappingAdd + WrappingSub + CheckedAdd + CheckedSub + PartialOrd + Copy + Default + Ord,
-    {
         pub fn add(&mut self, val: T) {
-            self.deq.push_back(val);
+            self.sum += Into::<BigInt>::into(val.clone());
+            if let Some(replaced) = self.deq.push_back(val) {
+                self.sum -= Into::<BigInt>::into(replaced);
+            }
         }
 
         #[must_use]
         pub fn total(&self) -> Option<T> {
-            // TODO(corzimmerman): come up with a better naive impl.
-            // Then add a test with underflow.
-            let mut sorted: Vec<T> = self.deq.iter().copied().collect();
-            sorted.sort();
-            sorted
-                .iter()
-                .try_fold(self.init, |acc, el| acc.checked_add(el))
+            (&self.sum).try_into().ok()
         }
     }
 }
@@ -165,7 +156,7 @@ pub mod for_tests {
 mod tests {
     use super::*;
     use crate::{
-        decimal::{D1, D4},
+        decimal::{D1, D5},
         rolling_sum::for_tests::NaiveRollingSum,
     };
     use core::fmt::Debug;
@@ -177,23 +168,19 @@ mod tests {
     /// to verify their outputs are identical.
     #[test]
     fn rng_with_naive() {
-        const QLEN: usize = 600;
-        const STREAM_LEN: usize = 10_000;
+        const QLEN: usize = 1000;
+        const STREAM_LEN: usize = 100_000;
 
-        let sample = SmallRng::seed_from_u64(57).sample_iter(Uniform::new(-100f32, 800.).unwrap());
-        let mut roller = RollingSum::<D4, QLEN>::default();
-        let mut naive = NaiveRollingSum::<D4, QLEN>::default();
+        let sample = SmallRng::seed_from_u64(57).sample_iter(Uniform::new(-800f32, 800.).unwrap());
+        let mut roller = RollingSum::<D5, QLEN>::default();
+        let mut naive = NaiveRollingSum::<D5, QLEN>::default();
 
-        let mut nones = 0;
         for val in sample.take(STREAM_LEN) {
-            let d4 = D4::cast(val);
+            let d4 = D5::cast(val.into());
             roller.add(d4);
             naive.add(d4);
             assert_eq!(roller.total(), naive.total().as_ref());
-            nones += usize::from(roller.total().is_none());
         }
-
-        println!("percent none: {:?}", nones as f32 / STREAM_LEN as f32);
     }
 
     /// Verifies that total() returns `init` before any values are added.

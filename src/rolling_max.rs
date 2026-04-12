@@ -104,9 +104,9 @@ pub mod for_tests {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use super::*;
     use crate::{decimal::D4, rolling_max::for_tests::NaiveRollingMax};
 
-    use super::*;
     use core::fmt::Debug;
     use rand::{distr::Uniform, rngs::SmallRng, RngExt, SeedableRng};
 
@@ -116,10 +116,11 @@ mod tests {
     /// to verify their outputs are identical.
     #[test]
     fn rng_with_naive() {
-        const QLEN: usize = 6000;
-        const STREAM_LEN: usize = 10_000;
+        const QLEN: usize = 1000;
+        const STREAM_LEN: usize = 100_000;
 
-        let sample = SmallRng::seed_from_u64(75).sample_iter(Uniform::new(0f32, 65.535).unwrap());
+        let sample =
+            SmallRng::seed_from_u64(75).sample_iter(Uniform::new(-65.535, 65.535).unwrap());
         let mut roller = RollingMax::<D4, QLEN>::new();
         let mut naive = NaiveRollingMax::<D4, QLEN>::new();
 
