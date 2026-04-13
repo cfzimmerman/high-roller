@@ -1,18 +1,100 @@
-// TODO: DOCS
-
 use arraydeque::ArrayDeque;
 
+/// A rolling accumulator that tracks the largest value
+/// in a fixed size window.
+///
+/// - Push is O(1)
+/// - Get max is O(1)
+/// - There are no heap allocations.
+///
+/// Like [`std::collections::BinaryHeap`], `RollingMax` exposes
+/// a "maximum only" API. The minimum can be found by using
+/// [`core::cmp::Reverse`].
+///
+/// ```
+/// use core::cmp::Reverse;
+/// use high_roller::rolling_max::RollingMax;
+///
+/// type RollingMin<T, const WINDOW: usize> = RollingMax<Reverse<T>, WINDOW>;
+/// ```
+///
+/// The example below shows how this might be used to publish
+/// telemetry for the highest latency event among the most
+/// recent 100 samples.
+///
+/// ```
+/// use high_roller::rolling_max::RollingMax;
+/// use rand::Rng;
+///
+/// // Assume this is unbounded in reality.
+/// let events = (0..1000).map(|_| network_latency_us());
+///
+/// let mut window: RollingMax<u32, 100> = RollingMax::new();
+/// for latency in events {
+///     window.push(latency);
+///     window.max().copied().map(emit_network_telemetry);
+/// }
+///
+/// fn network_latency_us() -> u32 {
+///     rand::rng().next_u32()
+/// }
+///
+/// fn emit_network_telemetry(max_latency_us: u32) {
+///     core::hint::black_box(max_latency_us);
+/// }
+///
+/// ```
+///
+/// # Design
+///
+/// The algorithm for this is well-known but not formalized
+/// anywhere I found easily accessible. The constraint of
+/// accumulating values internally is also a slight divergence
+/// from how this problem is typically presented. While RollingMax
+/// was motivated by a genuine need in production code, I also
+/// verified it against LeetCode 239, which exercises the same
+/// use case.
 #[derive(Debug, Default)]
 pub struct RollingMax<T, const WINDOW: usize> {
     deq: ArrayDeque<T, WINDOW>,
-    expires: ArrayDeque<usize, WINDOW>,
     ct: usize,
+    // PERF: Expiration could wrap to the window size. In that
+    // case rarely if ever will an expiration exceed u16::MAX.
+    // This incentivizes compressing expirations into a smaller
+    // type than usize. Worth investigating.
+    expires: ArrayDeque<usize, WINDOW>,
 }
 
 impl<T, const W: usize> RollingMax<T, W>
 where
     T: PartialOrd,
 {
+    /// Constructs a new empty [`RollingMax`].
+    ///
+    /// This type is stored entirely on the stack, so be aware of
+    /// window size. Boxing might be a good idea. Doing so yourself
+    /// enables cache-friendlier patterns than if each RollingMax
+    /// were unconditionally allocated on the heap.
+    ///
+    /// ```
+    /// use core::cmp::Reverse;
+    /// use high_roller::rolling_max::RollingMax;
+    ///
+    /// const WINDOW: usize = 6000;
+    ///
+    /// #[derive(Default)]
+    /// struct MyTelemetry {
+    ///     max_latency: RollingMax<u32, WINDOW>,
+    ///     min_latency: RollingMax<Reverse<u32>, WINDOW>,
+    ///     largest_batch: RollingMax<usize, WINDOW>
+    /// }
+    ///
+    /// // `MyTelemetry` is too big to live on the stack. But keeping
+    /// // everything in one allocation may yield friendlier cache
+    /// // access patterns.
+    /// let _telemetry = Box::new(MyTelemetry::default());
+    ///
+    /// ```
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -22,6 +104,8 @@ where
         }
     }
 
+    // TODO: docs
+    //
     // Clippy allow:
     //
     // Expect is used in this function to guarantee invariants.
@@ -61,6 +145,7 @@ where
             .expect("expirations guarantee queue is never full at this point");
     }
 
+    // TODO: docs
     #[must_use]
     pub fn max(&self) -> Option<&T> {
         self.deq.front()

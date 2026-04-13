@@ -341,10 +341,10 @@ impl<const P: u32> TryFrom<Decimal32<P>> for f32 {
     /// f32's 24-bit mantissa. Use [`Decimal32::get`] if unchecked lossless
     /// output is required.
     fn try_from(value: Decimal32<P>) -> Result<Self, Self::Error> {
-        if value.0 as f32 as i32 != value.0 {
+        if value.0 as Self as i32 != value.0 {
             return Err(DecimalErr::Lossy);
         }
-        Ok(value.get() as f32)
+        Ok(value.get() as Self)
     }
 }
 
