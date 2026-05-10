@@ -1,59 +1,60 @@
+//! # Rolling Max
+//!
+//! A rolling accumulator that tracks the largest value
+//! in a fixed size window.
+//!
+//! - Push is amortized O(1).
+//! - Max is O(1).
+//! - There are no heap allocations.
+//!
+//! Like `std::collections::BinaryHeap`, [`RollingMax`] exposes
+//! a "maximum only" API. A rolling minimum can be found by using
+//! [`core::cmp::Reverse`] within a [`RollingMax`].
+//!
+//! ```
+//! use core::cmp::Reverse;
+//! use high_roller::rolling_max::RollingMax;
+//!
+//! type RollingMin<T, const WINDOW: usize> = RollingMax<Reverse<T>, WINDOW>;
+//! ```
+//!
+//! The example below shows how this might be used to publish
+//! telemetry for the highest latency event among the 100 most
+//! recent samples.
+//!
+//! ```
+//! # use high_roller::rolling_max::RollingMax;
+//! # use rand::Rng;
+//! #
+//! # let stream = (0..1000);
+//! let events = stream.map(|event| network_latency_us(&event));
+//!
+//! let mut window: RollingMax<u32, 100> = RollingMax::new();
+//! for latency in events {
+//!     window.push(latency);
+//!     window.max().copied().map(emit_network_telemetry);
+//! }
+//!
+//! # fn network_latency_us(_: &usize) -> u32 {
+//! #     rand::rng().next_u32()
+//! # }
+//! # fn emit_network_telemetry(max_latency_us: u32) {
+//! #     core::hint::black_box(max_latency_us);
+//! # }
+//! ```
+
 use arraydeque::ArrayDeque;
 
-/// A rolling accumulator that tracks the largest value
-/// in a fixed size window.
+/// # Rolling Max
 ///
-/// - Push is O(1)
-/// - Get max is O(1)
-/// - There are no heap allocations.
-///
-/// Like [`std::collections::BinaryHeap`], `RollingMax` exposes
-/// a "maximum only" API. The minimum can be found by using
-/// [`core::cmp::Reverse`].
-///
-/// ```
-/// use core::cmp::Reverse;
-/// use high_roller::rolling_max::RollingMax;
-///
-/// type RollingMin<T, const WINDOW: usize> = RollingMax<Reverse<T>, WINDOW>;
-/// ```
-///
-/// The example below shows how this might be used to publish
-/// telemetry for the highest latency event among the most
-/// recent 100 samples.
-///
-/// ```
-/// use high_roller::rolling_max::RollingMax;
-/// use rand::Rng;
-///
-/// // Assume this is unbounded in reality.
-/// let events = (0..1000).map(|_| network_latency_us());
-///
-/// let mut window: RollingMax<u32, 100> = RollingMax::new();
-/// for latency in events {
-///     window.push(latency);
-///     window.max().copied().map(emit_network_telemetry);
-/// }
-///
-/// fn network_latency_us() -> u32 {
-///     rand::rng().next_u32()
-/// }
-///
-/// fn emit_network_telemetry(max_latency_us: u32) {
-///     core::hint::black_box(max_latency_us);
-/// }
-///
-/// ```
+/// Tracks the largest value in a fixed-size window.
 ///
 /// # Design
 ///
 /// The algorithm for this is well-known but not formalized
 /// anywhere I found easily accessible. The constraint of
 /// accumulating values internally is also a slight divergence
-/// from how this problem is typically presented. While RollingMax
-/// was motivated by a genuine need in production code, I also
-/// verified it against LeetCode 239, which exercises the same
-/// use case.
+/// from how this problem is typically presented.
 #[derive(Debug, Default)]
 pub struct RollingMax<T, const WINDOW: usize> {
     deq: ArrayDeque<T, WINDOW>,
@@ -73,7 +74,7 @@ where
     ///
     /// This type is stored entirely on the stack, so be aware of
     /// window size. Boxing might be a good idea. Doing so yourself
-    /// enables cache-friendlier patterns than if each RollingMax
+    /// enables cache-friendlier patterns than if each [`RollingMax`]
     /// were unconditionally allocated on the heap.
     ///
     /// ```
@@ -89,11 +90,11 @@ where
     ///     largest_batch: RollingMax<usize, WINDOW>
     /// }
     ///
-    /// // `MyTelemetry` is too big to live on the stack. But keeping
-    /// // everything in one allocation may yield friendlier cache
-    /// // access patterns.
+    /// // `MyTelemetry` is too big to live comfortably on the stack.
+    /// // But keeping everything in one allocation may yield friendlier
+    /// // cache access patterns.
+    /// const _: () = assert!(core::mem::size_of::<MyTelemetry>() == 240120);
     /// let _telemetry = Box::new(MyTelemetry::default());
-    ///
     /// ```
     #[must_use]
     pub const fn new() -> Self {
@@ -104,7 +105,24 @@ where
         }
     }
 
-    // TODO: docs
+    /// Adds an entry to the rolling window. If the window is full,
+    /// the oldest member is evicted.
+    ///
+    /// ```
+    /// use high_roller::rolling_max::RollingMax;
+    ///
+    /// let mut window: RollingMax<usize, 3> = RollingMax::new();
+    ///
+    /// window.push(usize::MAX);
+    /// window.push(1);
+    /// window.push(2);
+    ///
+    /// assert_eq!(window.max().copied(), Some(usize::MAX));
+    ///
+    /// // Evicts the first entry, which was previously the max.
+    /// window.push(0);
+    /// assert_eq!(window.max().copied(), Some(2));
+    /// ```
     //
     // Clippy allow:
     //
@@ -145,7 +163,20 @@ where
             .expect("expirations guarantee queue is never full at this point");
     }
 
-    // TODO: docs
+    /// Returns the maximum entry in the window or [`None`] if
+    /// the window is empty.
+    ///
+    /// ```
+    /// use high_roller::rolling_max::RollingMax;
+    ///
+    /// let mut window: RollingMax<usize, 3> = RollingMax::new();
+    /// assert_eq!(window.max(), None);
+    ///
+    /// window.push(5);
+    /// // Once any entry has been pushed, max will never again
+    /// // return None.
+    /// assert_eq!(window.max().copied(), Some(5));
+    /// ```
     #[must_use]
     pub fn max(&self) -> Option<&T> {
         self.deq.front()

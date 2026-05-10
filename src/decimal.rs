@@ -1,3 +1,36 @@
+//! # Decimal32
+//!
+//! Decimal32 is a transparent wrapper over an i32.
+//! A const generic declares the number of places
+//! after the decimal point.
+//!
+//! The motivation for such a type is providing lossless
+//! arithmetic guarantees like in the example below.
+//!
+//! ```
+//! use high_roller::decimal::D9;
+//! use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
+//!
+//! const SMALL: f64 = 0.111000111;
+//! const LARGE: f64 = 2.147483647;
+//!
+//! const CHECKED_SMALL: D9 = D9::checked(SMALL).unwrap();
+//! const CHECKED_LARGE: D9 = D9::checked(LARGE).unwrap();
+//!
+//! // Parity with lossless operations
+//! let sum = const { D9::checked(1.).unwrap() }.checked_add(&CHECKED_SMALL);
+//! assert_eq!(sum.unwrap().get(), 1. + SMALL, "Result fits in f64");
+//!
+//! // Checked operations prevent overflow
+//! let lossy = CHECKED_LARGE.checked_add(&CHECKED_SMALL);
+//! assert_eq!(lossy, None, "Result overflows i32");
+//! assert_ne!(LARGE + SMALL - LARGE, SMALL);
+//!
+//! // Wrapping operations enable loss recovery
+//! let wrapped = CHECKED_LARGE.wrapping_add(&CHECKED_SMALL);
+//! assert_eq!(wrapped.wrapping_sub(&CHECKED_LARGE), CHECKED_SMALL);
+//! ```
+
 use core::f32;
 use core::fmt::{Debug, Display};
 use core::ops::{Add, Neg, Sub};
@@ -113,38 +146,7 @@ pub type D8 = Decimal32<8>;
 /// ```
 pub type D9 = Decimal32<9>;
 
-/// # Decimal32
-///
-/// This is a transparent wrapper over an i32.
-/// A const generic declares the number of places
-/// after the decimal point.
-///
-/// The motivation for such a type is providing lossless
-/// arithmetic guarantees like in the example below.
-///
-/// ```
-/// use high_roller::decimal::D9;
-/// use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
-///
-/// const SMALL: f64 = 0.111000111;
-/// const LARGE: f64 = 2.147483647;
-///
-/// const CHECKED_SMALL: D9 = D9::checked(SMALL).unwrap();
-/// const CHECKED_LARGE: D9 = D9::checked(LARGE).unwrap();
-///
-/// // Parity with lossless operations
-/// let sum = const { D9::checked(1.).unwrap() }.checked_add(&CHECKED_SMALL);
-/// assert_eq!(sum.unwrap().get(), 1. + SMALL, "Result fits in f64");
-///
-/// // Checked operations prevent overflow
-/// let lossy = CHECKED_LARGE.checked_add(&CHECKED_SMALL);
-/// assert_eq!(lossy, None, "Result overflows i32");
-/// assert_ne!(LARGE + SMALL - LARGE, SMALL);
-///
-/// // Wrapping operations enable loss recovery
-/// let wrapped = CHECKED_LARGE.wrapping_add(&CHECKED_SMALL);
-/// assert_eq!(wrapped.wrapping_sub(&CHECKED_LARGE), CHECKED_SMALL);
-/// ```
+/// A 32-bit lossless number with const-defined decimal precision.
 ///
 /// # Design
 ///

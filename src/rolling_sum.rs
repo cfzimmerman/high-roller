@@ -1,10 +1,85 @@
+//! # Rolling Sum
+//!
+//! [`RollingSum`] tracks the sum of values in a fixed-size window.
+//! When the window is full, pushing a new value evicts the oldest.
+//!
+//! API guarantees:
+//! - Add is O(1).
+//! - Total is O(1).
+//! - Overflow and underflow are detected and recoverable.
+//! - Zero heap allocations.
+//!
+//! The value of this implementation is error recovery.
+//! [`RollingSum`] returns [`None`] as long as the inner sum
+//! overflows `T::MAX` or underflows `T::MIN`. And it resumes
+//! yielding `Some(&T)` as soon as the inner sum recovers.
+//!
+//! ```
+//! use high_roller::rolling_sum::RollingSum;
+//!
+//! let mut rsum: RollingSum<i8, 3> = RollingSum::default();
+//!
+//! // Add an initial value.
+//! rsum.add(5);
+//! assert_eq!(rsum.total().copied(), Some(5));
+//!
+//! // Stream of -1s takes over the window.
+//! for _ in 0..100 {
+//!     rsum.add(-1);
+//! }
+//! assert_eq!(rsum.total().copied(), Some(-3));
+//!
+//! // Underflow forces total to None.
+//! rsum.add(i8::MIN);
+//! assert_eq!(rsum.total(), None);
+//!
+//! // Balanced back to zero.
+//! rsum.add(i8::MAX);
+//! rsum.add(1);
+//! assert_eq!(rsum.total().copied(), Some(0));
+//!
+//! // Evicting i8::MIN causes overflow.
+//! rsum.add(0);
+//! assert_eq!(rsum.total(), None);
+//!
+//! // Cause multiple overflows.
+//! for _ in 0..100 {
+//!     rsum.add(i8::MAX);
+//! }
+//! assert_eq!(rsum.total(), None);
+//!
+//! // And recover back into an expected range.
+//! for _ in 0..100 {
+//!     rsum.add(1);
+//! }
+//! assert_eq!(rsum.total().copied(), Some(3));
+//! ```
+
 use arraydeque::ArrayDeque;
 use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
 
-// TODO docs:
-// Also there's a bitvec optimization we could do
-// when T = bool. But that's a project for later.
+// PERF: using a bitvec or double bitvec for RollingSum on
+// applicable types could be a pretty nice space optimization.
+// Future project :)
 
+/// Tracks a rolling sum of at most `WINDOW` values.
+///
+/// This type is stack allocated. However a large window
+/// might warrant boxing. Clustering multiple instances
+/// in the same allocation might offer better cache
+/// access patterns.
+///
+/// ```
+/// use high_roller::rolling_sum::RollingSum;
+///
+/// struct Average {
+///     total: RollingSum<u32, 6000>,
+///     samples: RollingSum<u8, 6000>
+/// }
+///
+/// // Probably want to box this.
+/// const _: () = assert!(core::mem::size_of::<Average>() == 30064);
+/// ```
 #[derive(Debug)]
 pub struct RollingSum<T, const WINDOW: usize> {
     deq: ArrayDeque<T, WINDOW>,
@@ -17,6 +92,8 @@ impl<T, const W: usize> Default for RollingSum<T, W>
 where
     T: Default,
 {
+    /// Constructs a new [`RollingSum`] with sum and zero
+    /// values equal to `T::default()`.
     fn default() -> Self {
         Self::new(T::default(), T::default())
     }
@@ -26,6 +103,30 @@ impl<T, const WINDOW: usize> RollingSum<T, WINDOW>
 where
     T: Default,
 {
+    /// Constructs a new [`RollingSum`].
+    ///
+    /// Prefer using [`RollingSum::default`] for a cleaner API.
+    /// `init` is the sum's initial value. `zero` is value separating
+    /// positive and negative for this type. While identifying zero is strange,
+    /// passing as a parameter avoids requiring a `Zero` trait impl, which isn't
+    /// fun for anybody. Zero is required for differentiating overflow
+    /// and underflow.
+    ///
+    /// ```
+    /// use high_roller::rolling_sum::RollingSum;
+    ///
+    /// let _sum: RollingSum::<usize, 10> = RollingSum::new(0, 0);
+    /// ```
+    ///
+    /// # Compile errors
+    ///
+    /// Using `WINDOW == 0` is a compile-time error.
+    ///
+    /// ```compile_fail
+    /// # use high_roller::rolling_sum::RollingSum;
+    /// // This will fail to compile. A rolling sum of capacity 0 is nonsensical.
+    /// let _sum: RollingSum::<usize, 0> = RollingSum::default();
+    /// ```
     #[must_use]
     pub const fn new(init: T, zero: T) -> Self {
         const { assert!(WINDOW != 0, "RollingSum with WINDOW == 0 is not permitted") };
@@ -46,14 +147,27 @@ where
     /// member if the window is full to capacity.
     ///
     /// If adding `T` causes numerical overflow, subsequent
-    /// calls to `total` will return None until window
+    /// calls to [`RollingSum::total`] will return [`None`] until window
     /// expirations cause underflow commensurate to the overflow.
+    ///
+    /// ```
+    /// use high_roller::rolling_sum::RollingSum;
+    ///
+    /// let mut rsum: RollingSum<i32, 1000> = RollingSum::default();
+    ///
+    /// rsum.add(100);
+    /// rsum.add(1);
+    /// rsum.add(-2);
+    ///
+    /// assert_eq!(rsum.total().copied(), Some(99));
+    /// ```
     ///
     /// # Panics
     ///
-    /// This function panics if the `usize` variable tracking the
-    /// number of times the sum has overflowed itself overflows.
-    /// A window should be sized such that this never occurs.
+    /// This function panics if the [`isize`] signed overflow balance
+    /// counter itself overflows. Such a panic is impossible as long
+    /// as `WINDOW <= isize::MAX`. And an array of size `isize::MAX`
+    /// bytes is fantasy on all current hardware anyway.
     //
     // Clippy allow:
     // Explained inline. This is easily provable, will never occur,
@@ -94,13 +208,31 @@ where
         self.deq.push_back(val).expect("deq is not full");
     }
 
-    /// Returns the accumulated total of all added
-    /// values that fit within the rolling window's
-    /// capacity.
+    /// Returns the accumulated total of all added values that
+    /// fit within the rolling window's capacity.
     ///
-    /// Returns None if the window has overflowed.
-    /// In that case, it will return to Some(..) when
-    /// the last element causing overflow is pushed out.
+    /// Returns [`None`] if the window has overflowed. [`RollingSum`]
+    /// will resume returning `Some(&T)` when the last element
+    /// causing overflow is pushed out of the window.
+    ///
+    /// ```
+    /// use high_roller::rolling_sum::RollingSum;
+    ///
+    /// let mut rsum: RollingSum<i32, 100> = RollingSum::default();
+    ///
+    /// rsum.add(i32::MIN);
+    /// assert_eq!(rsum.total().copied(), Some(i32::MIN));
+    ///
+    /// for _ in 0..1000 {
+    ///     rsum.add(i32::MIN);
+    ///     assert_eq!(rsum.total(), None);
+    /// }
+    ///
+    /// for _ in 0..100 {
+    ///     rsum.add(-1);
+    /// }
+    /// assert_eq!(rsum.total().copied(), Some(-100));
+    /// ```
     #[must_use]
     pub fn total(&self) -> Option<&T> {
         (self.balance == 0).then_some(&self.total)
