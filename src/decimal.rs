@@ -32,10 +32,16 @@
 //! ```
 
 use core::f32;
-use core::fmt::{Debug, Display};
-use core::ops::{Add, Neg, Sub};
+use core::fmt::Debug;
+use core::fmt::Display;
+use core::ops::Add;
+use core::ops::Neg;
+use core::ops::Sub;
 
-use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
+use num_traits::CheckedAdd;
+use num_traits::CheckedSub;
+use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
 use thiserror::Error;
 
 /// A `Decimal32` type with one significant figure
@@ -435,9 +441,14 @@ impl<const P: u32> TryFrom<&num_bigint::BigInt> for Decimal32<P> {
 #[allow(clippy::expect_used)]
 #[cfg(test)]
 pub mod decimal_tests {
-    use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
+    use num_traits::CheckedAdd;
+    use num_traits::CheckedSub;
+    use num_traits::WrappingAdd;
+    use num_traits::WrappingSub;
 
-    use crate::decimal::{Decimal32, DecimalErr, D3};
+    use crate::decimal::Decimal32;
+    use crate::decimal::DecimalErr;
+    use crate::decimal::D3;
 
     /// Checks equality within one unit of the given precision (i.e. tolerance = 10^-precision).
     pub fn assert_eq_f64(left: f64, right: f64, precision: u32) {

@@ -56,7 +56,10 @@
 //! ```
 
 use arraydeque::ArrayDeque;
-use num_traits::{CheckedAdd, CheckedSub, WrappingAdd, WrappingSub};
+use num_traits::CheckedAdd;
+use num_traits::CheckedSub;
+use num_traits::WrappingAdd;
+use num_traits::WrappingSub;
 
 // PERF: using a bitvec or double bitvec for RollingSum on
 // applicable types could be a pretty nice space optimization.
@@ -241,7 +244,8 @@ where
 
 #[cfg(test)]
 pub mod for_tests {
-    use arraydeque::{ArrayDeque, Wrapping};
+    use arraydeque::ArrayDeque;
+    use arraydeque::Wrapping;
     use num_bigint::BigInt;
 
     /// A simple implementation satisfying the same API as
@@ -287,12 +291,14 @@ pub mod for_tests {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{
-        decimal::{D1, D5},
-        rolling_sum::for_tests::NaiveRollingSum,
-    };
+    use crate::decimal::D1;
+    use crate::decimal::D5;
+    use crate::rolling_sum::for_tests::NaiveRollingSum;
     use core::fmt::Debug;
-    use rand::{distr::Uniform, rngs::SmallRng, RngExt, SeedableRng};
+    use rand::distr::Uniform;
+    use rand::rngs::SmallRng;
+    use rand::RngExt;
+    use rand::SeedableRng;
 
     /// Smoke test for RollingSum correctness.
     ///

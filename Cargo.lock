@@ -303,7 +303,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "high-roller"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arraydeque",
  "criterion",
@@ -311,7 +311,6 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand",
- "ringbuffer",
  "thiserror",
 ]
 
@@ -555,12 +554,6 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
-
-[[package]]
-name = "ringbuffer"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57b0b88a509053cbfd535726dcaaceee631313cef981266119527a1d110f6d2b"
 
 [[package]]
 name = "rustc-serialize"

@@ -1,6 +1,6 @@
 [package]
 name = "high-roller"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Rolling maximum, minimum, and sum for streams of numerical data."
@@ -10,7 +10,6 @@ readme = "README.md"
 [dependencies]
 arraydeque = { version = "0.5.1", default-features = false }
 num-traits = "0.2.19"
-ringbuffer = "0.16.0"
 thiserror = { version = "2.0.18", default-features = false }
 
 [dev-dependencies]

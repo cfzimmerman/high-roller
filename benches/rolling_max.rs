@@ -1,12 +1,16 @@
-use std::{collections::VecDeque, num::NonZeroUsize, ops::Range};
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::ops::Range;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::criterion_group;
+use criterion::criterion_main;
+use criterion::Criterion;
 use high_roller::rolling_max::RollingMax;
-use rand::{
-    distr::{uniform::SampleUniform, Uniform},
-    rngs::SmallRng,
-    RngExt, SeedableRng,
-};
+use rand::distr::uniform::SampleUniform;
+use rand::distr::Uniform;
+use rand::rngs::SmallRng;
+use rand::RngExt;
+use rand::SeedableRng;
 use std::hint::black_box;
 
 /*
